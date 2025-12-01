@@ -1,0 +1,1201 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <title>循環槓桿動態沙盤 - Google 登入版</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- Tailwind -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Identity Services -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body class="bg-slate-50">
+  <div id="root"></div>
+
+  <!-- React 18 UMD -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <!-- Babel 轉譯 JSX -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <script type="text/babel">
+
+const { useState, useEffect } = React;
+
+// ===== 簡易 Icon：用 emoji 取代 lucide-react =====
+const Icon = ({ children, className }) => (
+  <span
+    className={className}
+    style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+  >
+    <span style={{ fontSize: '1rem' }}>{children}</span>
+  </span>
+);
+
+const TrendingUp = (props) => <Icon {...props}>📈</Icon>;
+const AlertTriangle = (props) => <Icon {...props}>⚠️</Icon>;
+const CheckCircle = (props) => <Icon {...props}>✔️</Icon>;
+const DollarSign = (props) => <Icon {...props}>💰</Icon>;
+const History = (props) => <Icon {...props}>🕒</Icon>;
+const Save = (props) => <Icon {...props}>💾</Icon>;
+const RefreshCw = (props) => <Icon {...props}>🔄</Icon>;
+const Percent = (props) => <Icon {...props}>％</Icon>;
+const Calendar = (props) => <Icon {...props}>📅</Icon>;
+const FileText = (props) => <Icon {...props}>📄</Icon>;
+const RefreshCcw = (props) => <Icon {...props}>↩️</Icon>;
+const ShieldCheck = (props) => <Icon {...props}>🛡️</Icon>;
+const ShieldAlert = (props) => <Icon {...props}>🛡️</Icon>;
+const IconLineChart = (props) => <Icon {...props}>📊</Icon>;
+const Edit3 = (props) => <Icon {...props}>✏️</Icon>;
+const Users = (props) => <Icon {...props}>👥</Icon>;
+const UserPlus = (props) => <Icon {...props}>➕</Icon>;
+const UserCheck = (props) => <Icon {...props}>✅</Icon>;
+const Trash2 = (props) => <Icon {...props}>🗑️</Icon>;
+const PenLine = (props) => <Icon {...props}>✏️</Icon>;
+const X = (props) => <Icon {...props}>✖️</Icon>;
+const MousePointerClick = (props) => <Icon {...props}>🖱️</Icon>;
+const PieChart = (props) => <Icon {...props}>📊</Icon>;
+const ArrowDownCircle = (props) => <Icon {...props}>⬇️</Icon>;
+const PlusCircle = (props) => <Icon {...props}>➕</Icon>;
+const Copy = (props) => <Icon {...props}>📋</Icon>;
+const FolderOpen = (props) => <Icon {...props}>📂</Icon>;
+const Database = (props) => <Icon {...props}>💾</Icon>;
+const RotateCcw = (props) => <Icon {...props}>⏪</Icon>;
+
+// ===== Google Identity 設定（請自行替換成你的 Client ID） =====
+const GOOGLE_CLIENT_ID = "在這裡填入你的 Google OAuth Client ID";
+
+function decodeJwtResponse(token) {
+  try {
+    const base64Url = token.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(
+      atob(base64)
+        .split('')
+        .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    );
+    return JSON.parse(jsonPayload);
+  } catch (e) {
+    console.error("Failed to decode JWT", e);
+    return null;
+  }
+}
+
+
+const Card = ({ children, className = "" }) => (
+  <div className={`bg-white rounded-xl shadow-md p-5 ${className}`}>
+    {children}
+  </div>
+);
+
+const Badge = ({ children, color = "gray" }) => {
+  const colors = {
+    gray: "bg-gray-100 text-gray-800",
+    red: "bg-red-100 text-red-800",
+    green: "bg-green-100 text-green-800",
+    yellow: "bg-yellow-100 text-yellow-800",
+    blue: "bg-blue-100 text-blue-800",
+  };
+  return (
+    <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${colors[color]}`}>
+      {children}
+    </span>
+  );
+};
+
+// 簡單的確認對話框元件 (取代 window.confirm)
+const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, confirmText = "確認", cancelText = "取消", isDanger = false }) => {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4 animate-fade-in">
+      <div className="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6 transform transition-all scale-100">
+        <h3 className={`text-lg font-bold mb-2 ${isDanger ? 'text-red-600' : 'text-slate-900'}`}>{title}</h3>
+        <p className="text-slate-600 mb-6 text-sm leading-relaxed whitespace-pre-line">{message}</p>
+        <div className="flex justify-end gap-3">
+          <button 
+            onClick={onClose} 
+            className="px-4 py-2 text-slate-500 hover:bg-slate-100 rounded-lg text-sm font-medium transition-colors"
+          >
+            {cancelText}
+          </button>
+          <button 
+            onClick={() => { onConfirm(); onClose(); }} 
+            className={`px-4 py-2 text-white rounded-lg text-sm font-medium transition-colors shadow-sm ${isDanger ? 'bg-red-600 hover:bg-red-700' : 'bg-indigo-600 hover:bg-indigo-700'}`}
+          >
+            {confirmText}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// 簡易趨勢圖元件
+const AssetTrendChart = ({ history }) => {
+  if (!history || history.length < 2) return null;
+
+  const data = [...history].reverse();
+  const width = 800;
+  const height = 300;
+  const padding = 60;
+  const graphWidth = width - padding * 2;
+  const graphHeight = height - padding * 2;
+
+  const maxAsset = Math.max(...data.map(d => d.asset));
+  const maxVal = maxAsset * 1.1;
+
+  const getX = (index) => padding + (index / (data.length - 1)) * graphWidth;
+  const getY = (value) => height - padding - (value / maxVal) * graphHeight;
+
+  const pointsAsset = data.map((d, i) => `${getX(i)},${getY(d.asset)}`).join(' ');
+  const pointsLoan = data.map((d, i) => `${getX(i)},${getY(d.loan)}`).join(' ');
+  const pointsEquity = data.map((d, i) => `${getX(i)},${getY(d.equity)}`).join(' ');
+
+  return (
+    <div className="mt-8 animate-fade-in">
+      <div className="flex items-center gap-2 mb-4">
+        <IconLineChart className="w-5 h-5 text-slate-700" />
+        <h2 className="text-xl font-bold text-slate-800">資產趨勢分析</h2>
+      </div>
+      
+      <Card className="overflow-hidden">
+        <div className="w-full overflow-x-auto">
+          <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[600px] h-auto select-none">
+            <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke="#e2e8f0" strokeWidth="2" />
+            <line x1={padding} y1={padding} x2={padding} y2={height - padding} stroke="#e2e8f0" strokeWidth="2" />
+            <line x1={padding} y1={getY(maxVal / 2)} x2={width - padding} y2={getY(maxVal / 2)} stroke="#f1f5f9" strokeDasharray="5,5" />
+
+            <polyline points={pointsLoan} fill="none" stroke="#ef4444" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" opacity="0.8" />
+            <polyline points={pointsEquity} fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" opacity="0.8" />
+            <polyline points={pointsAsset} fill="none" stroke="#3b82f6" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+
+            {data.map((d, i) => (
+              <g key={i}>
+                <text x={getX(i)} y={height - padding + 20} textAnchor="middle" fontSize="12" fill="#64748b">#{d.step}</text>
+                <circle cx={getX(i)} cy={getY(d.asset)} r="4" fill="#3b82f6" />
+                <text x={getX(i)} y={getY(d.asset) - 10} textAnchor="middle" fontSize="12" fontWeight="bold" fill="#3b82f6">{Math.round(d.asset)}</text>
+
+                {(i === data.length - 1 || i === 0) && (
+                  <>
+                    <text x={getX(i)} y={getY(d.loan) + 20} textAnchor="middle" fontSize="10" fill="#ef4444">負債 {Math.round(d.loan)}</text>
+                    <text x={getX(i)} y={getY(d.equity) - 10} textAnchor="middle" fontSize="10" fill="#10b981">淨值 {Math.round(d.equity)}</text>
+                  </>
+                )}
+              </g>
+            ))}
+
+            <g transform={`translate(${width - 250}, 30)`}>
+               <rect width="220" height="30" fill="white" opacity="0.8" rx="4" />
+               <circle cx="10" cy="15" r="4" fill="#3b82f6" />
+               <text x="20" y="19" fontSize="12" fill="#334155">總資產</text>
+               <circle cx="80" cy="15" r="4" fill="#10b981" />
+               <text x="90" y="19" fontSize="12" fill="#334155">淨值(權益)</text>
+               <circle cx="160" cy="15" r="4" fill="#ef4444" />
+               <text x="170" y="19" fontSize="12" fill="#334155">負債</text>
+            </g>
+          </svg>
+        </div>
+        <p className="text-center text-xs text-slate-400 mt-2">* 圖表顯示單位：萬 (資產=藍, 淨值=綠, 負債=紅)</p>
+      </Card>
+    </div>
+  );
+};
+
+// 預設資料結構
+const createDefaultUser = (id, name) => ({
+  id,
+  name,
+  // 基礎設定
+  totalPortfolio: 3000, 
+  allocationRate: 33.3, 
+  
+  initialCollateral: 1000, 
+  initialLoanRatio: 60,
+  interestRate: 2.5,
+  // 策略參數
+  targetRatio: 250,
+  lowThreshold: 200,
+  highThreshold: 300,
+  // 備用金
+  reserveCash: 0,
+  useAutoReserve: true,
+  // 操作資訊
+  actionDate: new Date().toISOString().split('T')[0],
+  actionNote: '',
+  // 狀態
+  baseAsset: 0,
+  baseLoan: 0,
+  history: [],
+  stepCount: 0,
+  marketChange: 0,
+  
+  // 操作狀態
+  marginActionType: 'repay', 
+  manualMode: 'repay',       
+  inputAmount: 0,
+  isManualInput: false,
+  initialized: false
+});
+
+function LeverageLoopCalculator() {
+  // Google 登入使用者狀態
+  const [googleUser, setGoogleUser] = useState(() => {
+    try {
+      const saved = localStorage.getItem("leverage_google_user");
+      return saved ? JSON.parse(saved) : null;
+    } catch (e) {
+      console.error("Failed to load google user", e);
+      return null;
+    }
+  });
+
+  // Google 使用者狀態持久化
+  useEffect(() => {
+    try {
+      if (googleUser) {
+        localStorage.setItem("leverage_google_user", JSON.stringify(googleUser));
+      } else {
+        localStorage.removeItem("leverage_google_user");
+      }
+    } catch (e) {
+      console.error("Failed to save google user", e);
+    }
+  }, [googleUser]);
+
+  // 初始化 Google Identity（渲染登入按鈕）
+  useEffect(() => {
+    let attempts = 0;
+    const maxAttempts = 30;
+
+    const tryInit = () => {
+      if (window.google && window.google.accounts && window.google.accounts.id) {
+        try {
+          window.google.accounts.id.initialize({
+            client_id: GOOGLE_CLIENT_ID,
+            callback: (response) => {
+              const data = decodeJwtResponse(response.credential);
+              if (data) {
+                setGoogleUser({
+                  name: data.name,
+                  email: data.email,
+                  picture: data.picture,
+                  sub: data.sub,
+                });
+              }
+            },
+          });
+
+          const btnDiv = document.getElementById("googleSignInDiv");
+          if (btnDiv) {
+            window.google.accounts.id.renderButton(btnDiv, {
+              theme: "outline",
+              size: "medium",
+              width: 220,
+            });
+          }
+        } catch (e) {
+          console.error("Failed to init Google Identity", e);
+        }
+        return true;
+      }
+      return false;
+    };
+
+    if (!tryInit()) {
+      const id = setInterval(() => {
+        attempts += 1;
+        if (tryInit() || attempts > maxAttempts) {
+          clearInterval(id);
+        }
+      }, 300);
+      return () => clearInterval(id);
+    }
+  }, []);
+
+  const handleSignOut = () => {
+    try {
+      if (window.google && window.google.accounts && window.google.accounts.id && googleUser?.email) {
+        window.google.accounts.id.revoke(googleUser.email, () => {});
+      }
+    } catch (e) {
+      console.error("Failed to revoke Google account", e);
+    }
+    setGoogleUser(null);
+  };
+
+  // 從 LocalStorage 讀取初始狀態
+  const [users, setUsers] = useState(() => {
+    try {
+      const saved = localStorage.getItem('leverage_users_v2');
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (e) {
+      console.error("Failed to load from local storage", e);
+    }
+    return [createDefaultUser(1, '預設投資組合')];
+  });
+
+  const [activeUserId, setActiveUserId] = useState(() => {
+     try {
+       const savedId = localStorage.getItem('leverage_active_id');
+       // 確保讀取的 ID 存在於 users 中
+       const parsedId = savedId ? Number(savedId) : 1;
+       return parsedId;
+     } catch (e) { return 1; }
+  });
+
+  // 模態對話框狀態
+  const [modalConfig, setModalConfig] = useState({
+    isOpen: false,
+    title: "",
+    message: "",
+    onConfirm: () => {},
+    isDanger: false,
+    confirmText: "確認"
+  });
+
+  // 確保 activeUserId 有效 (如果被刪除了，跳回第一個)
+  useEffect(() => {
+    if (!users.find(u => u.id === activeUserId)) {
+      setActiveUserId(users[0]?.id || 1);
+    }
+  }, [users, activeUserId]);
+
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [tempName, setTempName] = useState('');
+
+  // 當 users 變動時，自動儲存到 LocalStorage
+  useEffect(() => {
+    localStorage.setItem('leverage_users_v2', JSON.stringify(users));
+  }, [users]);
+
+  // 當 activeUserId 變動時，儲存最後檢視的 ID
+  useEffect(() => {
+    localStorage.setItem('leverage_active_id', String(activeUserId));
+  }, [activeUserId]);
+
+  const activeUser = users.find(u => u.id === activeUserId) || users[0];
+
+  // 一般更新 (部分屬性)
+  const updateUser = (updates) => {
+    setUsers(prev => prev.map(user => {
+      if (user.id !== activeUserId) return user;
+      
+      const updatedUser = { ...user, ...updates };
+
+      // 自動檢查是否需要重新初始化 (針對配置變更)
+      const configChanged = 
+        user.initialCollateral !== updatedUser.initialCollateral ||
+        user.initialLoanRatio !== updatedUser.initialLoanRatio ||
+        user.interestRate !== updatedUser.interestRate;
+
+      if (configChanged || !user.initialized) {
+        return initializeLogic(updatedUser);
+      }
+      return updatedUser;
+    }));
+  };
+
+  // 初始化邏輯核心
+  const initializeLogic = (user) => {
+    const loan = user.initialCollateral * (user.initialLoanRatio / 100);
+    const asset = user.initialCollateral + loan;
+    
+    const initialSafetyCash = loan * (1 - user.lowThreshold/user.targetRatio);
+    const reserve = user.useAutoReserve ? Math.round(initialSafetyCash * 2) : user.reserveCash;
+
+    const today = new Date().toISOString().split('T')[0];
+
+    return {
+      ...user,
+      baseAsset: asset,
+      baseLoan: loan,
+      reserveCash: reserve,
+      marketChange: 0,
+      stepCount: 1,
+      actionDate: today,
+      actionNote: '',
+      inputAmount: 0,
+      isManualInput: false,
+      initialized: true,
+      history: [{
+        step: 1,
+        date: today,
+        action: "初始建倉",
+        note: "起始設定",
+        marketChange: 0,
+        asset: asset,
+        loan: loan,
+        equity: user.initialCollateral,
+        ratio: (asset / loan) * 100,
+        interestYear: loan * (user.interestRate / 100)
+      }]
+    };
+  };
+
+  // --- 對話框 Helper ---
+  const openModal = (config) => {
+    setModalConfig({ ...config, isOpen: true });
+  };
+
+  // --- 建倉管理功能 (修復版) ---
+
+  const addUser = () => {
+    const newId = (Math.max(...users.map(u => u.id)) || 0) + 1;
+    const newUser = createDefaultUser(newId, `新投資組合 #${newId}`);
+    const initializedUser = initializeLogic(newUser);
+    setUsers([...users, initializedUser]);
+    setActiveUserId(newId);
+  };
+
+  const cloneUser = () => {
+    const newId = (Math.max(...users.map(u => u.id)) || 0) + 1;
+    const clonedUser = JSON.parse(JSON.stringify(activeUser));
+    clonedUser.id = newId;
+    clonedUser.name = `${activeUser.name} (副本)`;
+    setUsers([...users, clonedUser]);
+    setActiveUserId(newId);
+  };
+
+  const requestReset = () => {
+    openModal({
+      title: "重置當前組合",
+      message: `確定要重置「${activeUser.name}」嗎？\n這將清除所有操作紀錄並回到初始狀態，但會保留您的本金與利率設定。`,
+      isDanger: true,
+      confirmText: "確認重置",
+      onConfirm: () => {
+        setUsers(prev => prev.map(user => {
+          if (user.id !== activeUserId) return user;
+          return initializeLogic(user); 
+        }));
+      }
+    });
+  };
+
+  const requestDelete = () => {
+    openModal({
+      title: "刪除投資組合",
+      message: `確定要刪除「${activeUser.name}」嗎？\n此操作無法復原。`,
+      isDanger: true,
+      confirmText: "確認刪除",
+      onConfirm: () => {
+        const newUsers = users.filter(u => u.id !== activeUserId);
+        setUsers(newUsers);
+        setActiveUserId(newUsers[0].id);
+      }
+    });
+  };
+
+  const requestClearAll = () => {
+    openModal({
+      title: "清除所有資料",
+      message: "【危險】這將刪除「所有」已儲存的投資組合與歷史紀錄，讓應用程式回到最初始的空白狀態。\n\n確定執行嗎？",
+      isDanger: true,
+      confirmText: "全部清除",
+      onConfirm: () => {
+        localStorage.removeItem('leverage_users_v2');
+        localStorage.removeItem('leverage_active_id');
+        const defaultUser = createDefaultUser(1, '預設投資組合');
+        const initializedUser = initializeLogic(defaultUser);
+        setUsers([initializedUser]);
+        setActiveUserId(1);
+      }
+    });
+  };
+
+  const startEditName = () => {
+    setTempName(activeUser.name);
+    setIsEditingName(true);
+  };
+
+  const saveName = () => {
+    if (tempName.trim()) {
+      updateUser({ name: tempName });
+    }
+    setIsEditingName(false);
+  };
+
+  // --- 計算邏輯 ---
+  const currentAsset = activeUser.baseAsset * (1 + activeUser.marketChange / 100);
+  const currentLoan = activeUser.baseLoan;
+  const currentRatio = currentLoan > 0 ? (currentAsset / currentLoan) * 100 : 0;
+  
+  const isDanger = currentRatio < activeUser.lowThreshold;
+  const isOpportunity = currentRatio >= activeUser.highThreshold;
+  const isSafe = !isDanger && !isOpportunity;
+
+  const effectiveMode = isDanger ? 'repay' : (isOpportunity ? 'invest' : activeUser.manualMode);
+
+  const handleManualAssetChange = (newVal) => {
+    const val = Number(newVal);
+    if (activeUser.baseAsset > 0) {
+       const impliedChange = ((val / activeUser.baseAsset) - 1) * 100;
+       updateUser({ marketChange: impliedChange });
+    }
+  };
+
+  const theoreticalSafetyCash = currentLoan * (1 - activeUser.lowThreshold/activeUser.targetRatio);
+  useEffect(() => {
+    if (activeUser.useAutoReserve) {
+      const newReserve = Math.round(theoreticalSafetyCash * 2);
+      if (newReserve !== activeUser.reserveCash) {
+        setUsers(prev => prev.map(u => 
+          u.id === activeUserId ? { ...u, reserveCash: newReserve } : u
+        ));
+      }
+    }
+  }, [theoreticalSafetyCash, activeUser.useAutoReserve, activeUserId]);
+
+  const suggestedCollateralFromPortfolio = Math.round(activeUser.totalPortfolio * (activeUser.allocationRate / 100));
+
+  const calculateSuggested = () => {
+    const target = activeUser.targetRatio / 100;
+    const inject = (target * currentLoan - currentAsset) > 0 ? (target * currentLoan - currentAsset) : 0;
+    const repay = (currentLoan - (currentAsset / target)) > 0 ? (currentLoan - (currentAsset / target)) : 0;
+    let reinvest = 0;
+    if (target > 1) {
+       reinvest = ((currentAsset - target * currentLoan) / (target - 1)) > 0 ? ((currentAsset - target * currentLoan) / (target - 1)) : 0;
+    }
+    return { inject, repay, reinvest };
+  };
+
+  const { inject: suggestedInject, repay: suggestedRepay, reinvest: suggestedReinvest } = calculateSuggested();
+
+  useEffect(() => {
+    if (!activeUser.isManualInput) {
+      let newInputAmount = 0;
+      
+      if (isDanger) {
+        if (activeUser.marginActionType === 'inject') {
+          newInputAmount = Math.round(suggestedInject * 10) / 10;
+        } else {
+          newInputAmount = Math.round(suggestedRepay * 10) / 10;
+        }
+      } else if (isOpportunity) {
+        newInputAmount = Math.round(suggestedReinvest * 10) / 10;
+      } else {
+        newInputAmount = 0;
+      }
+      
+      if (Math.abs(newInputAmount - activeUser.inputAmount) > 0.01) {
+           setUsers(prev => prev.map(u => 
+            u.id === activeUserId ? { ...u, inputAmount: newInputAmount } : u
+          ));
+      }
+    }
+  }, [suggestedInject, suggestedRepay, suggestedReinvest, activeUser.marginActionType, activeUser.isManualInput, activeUser.marketChange, currentRatio, activeUserId, isDanger, isOpportunity]);
+
+
+  const predictRatio = () => {
+    const val = Number(activeUser.inputAmount) || 0;
+    
+    if (effectiveMode === 'invest') {
+       const newAsset = currentAsset + val;
+       const newLoan = currentLoan + val;
+       return newLoan > 0 ? (newAsset / newLoan) * 100 : 0;
+    }
+
+    if (effectiveMode === 'deposit') {
+        const newAsset = currentAsset + val;
+        return currentLoan > 0 ? (newAsset / currentLoan) * 100 : 0;
+    }
+
+    if (activeUser.marginActionType === 'inject') {
+      const newAsset = currentAsset + val;
+      return currentLoan > 0 ? (newAsset / currentLoan) * 100 : 0;
+    } else {
+      const newLoan = currentLoan - val;
+      return newLoan > 0 ? (currentAsset / newLoan) * 100 : 999;
+    }
+  };
+  const predictedVal = predictRatio();
+
+  const addToHistoryAndReset = (action, newAsset, newLoan, cashFlow = 0, noteSuffix = '') => {
+    const newStep = activeUser.stepCount + 1;
+    const historyEntry = {
+      step: newStep,
+      date: activeUser.actionDate,
+      note: activeUser.actionNote,
+      action: `${action} ${noteSuffix}`,
+      marketChange: activeUser.marketChange,
+      cashFlow,
+      asset: newAsset,
+      loan: newLoan,
+      equity: newAsset - newLoan,
+      ratio: newLoan > 0 ? (newAsset / newLoan) * 100 : 0,
+      interestYear: newLoan * (activeUser.interestRate / 100)
+    };
+
+    updateUser({
+      baseAsset: newAsset,
+      baseLoan: newLoan,
+      marketChange: 0,
+      stepCount: newStep,
+      history: [historyEntry, ...activeUser.history],
+      actionNote: '',
+      isManualInput: false
+    });
+  };
+
+  const commitMarketChange = () => {
+    if (activeUser.marketChange === 0) return;
+    addToHistoryAndReset(`市場波動 (${activeUser.marketChange > 0 ? '+' : ''}${fmt(activeUser.marketChange)}%)`, currentAsset, activeUser.baseLoan);
+  };
+
+  const executeAction = () => {
+    const amount = Number(activeUser.inputAmount);
+    if (amount <= 0) return;
+
+    if (effectiveMode === 'invest') {
+        const suffix = activeUser.isManualInput ? `(手動金額)` : `(自動加碼至${activeUser.targetRatio}%)`;
+        addToHistoryAndReset("循環加碼 (增貸再投入)", currentAsset + amount, currentLoan + amount, 0, suffix);
+    } else if (effectiveMode === 'deposit') {
+        const suffix = `(手動金額)`;
+        addToHistoryAndReset("純買入擔保品 (自有資金)", currentAsset + amount, currentLoan, amount, suffix);
+    } else {
+        if (activeUser.marginActionType === 'inject') {
+          const suffix = activeUser.isManualInput ? `(手動金額)` : `(自動補至${activeUser.targetRatio}%)`;
+          addToHistoryAndReset("追加擔保品", currentAsset + amount, currentLoan, amount, suffix);
+        } else {
+          const suffix = activeUser.isManualInput ? `(手動金額)` : `(自動還至${activeUser.targetRatio}%)`;
+          addToHistoryAndReset("償還借款", currentAsset, currentLoan - amount, amount, suffix);
+        }
+    }
+  };
+
+  const fmt = (num) => num?.toLocaleString(undefined, { maximumFractionDigits: 1 }) || "0";
+  const fmtCurrency = (num) => num?.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 }) || "0";
+  const getStatusColor = (ratio) => {
+    if (ratio < activeUser.lowThreshold) return "text-red-600";
+    if (ratio >= activeUser.highThreshold) return "text-blue-600";
+    return "text-green-600";
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-800 pb-10">
+      
+      <ConfirmationModal 
+        isOpen={modalConfig.isOpen}
+        onClose={() => setModalConfig({ ...modalConfig, isOpen: false })}
+        {...modalConfig}
+      />
+
+      {/* 頂部導航與使用者切換 */}
+      <div className="bg-slate-900 text-white shadow-lg sticky top-0 z-50">
+        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+           <div className="flex items-center gap-2">
+             <RefreshCw className="w-6 h-6 text-indigo-400" />
+             <h1 className="text-lg font-bold hidden md:block">循環槓桿動態沙盤</h1>
+           </div>
+
+           <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
+                <div className="flex bg-slate-800 rounded-lg p-1 gap-1">
+                  {users.map(user => (
+                    <button
+                      key={user.id}
+                      onClick={() => setActiveUserId(user.id)}
+                      className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap
+                        ${activeUser.id === user.id 
+                          ? 'bg-indigo-600 text-white shadow-sm' 
+                          : 'text-slate-400 hover:text-white hover:bg-slate-700'}`}
+                    >
+                      <FolderOpen className="w-3 h-3" />
+                      {user.name}
+                    </button>
+                  ))}
+                </div>
+                <button 
+                  onClick={addUser}
+                  className="p-1.5 rounded-md bg-slate-800 text-slate-400 hover:text-indigo-400 hover:bg-slate-700 transition-colors"
+                  title="新增空白投資組合"
+                >
+                  <PlusCircle className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Google 登入區塊 */}
+              <div className="hidden md:flex items-center gap-2">
+                {googleUser ? (
+                  <>
+                    {googleUser.picture && (
+                      <img
+                        src={googleUser.picture}
+                        alt="avatar"
+                        className="w-7 h-7 rounded-full border border-slate-600"
+                      />
+                    )}
+                    <div className="text-xs leading-tight text-right">
+                      <div className="font-semibold">{googleUser.name || "已登入使用者"}</div>
+                      <div className="text-slate-400">{googleUser.email}</div>
+                    </div>
+                    <button
+                      onClick={handleSignOut}
+                      className="px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-700 text-xs text-slate-200"
+                    >
+                      登出
+                    </button>
+                  </>
+                ) : (
+                  <div
+                    id="googleSignInDiv"
+                    className="flex items-center justify-center bg-slate-800 rounded-md px-2 py-1 text-xs text-slate-300 min-w-[120px]"
+                  >
+                    Google 登入
+                  </div>
+                )}
+              </div>
+           </div>
+        </div>
+      </div>
+
+      <div className="max-w-6xl mx-auto space-y-6 px-4 mt-6">
+        
+        {/* 使用者標題與操作區 */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-4 rounded-xl shadow-sm border border-slate-100">
+          <div className="flex items-center gap-3 w-full md:w-auto">
+            <div className="p-3 bg-indigo-50 rounded-full text-indigo-600">
+               <Database className="w-6 h-6" />
+            </div>
+            
+            {isEditingName ? (
+              <div className="flex items-center gap-2">
+                <input 
+                  autoFocus
+                  type="text" 
+                  value={tempName} 
+                  onChange={(e) => setTempName(e.target.value)}
+                  className="border border-indigo-300 rounded px-2 py-1 text-lg font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <button onClick={saveName} className="p-1 text-green-600 hover:bg-green-50 rounded"><CheckCircle className="w-5 h-5"/></button>
+                <button onClick={() => setIsEditingName(false)} className="p-1 text-gray-400 hover:bg-gray-100 rounded"><X className="w-5 h-5"/></button>
+              </div>
+            ) : (
+              <div>
+                <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2 group">
+                  {activeUser.name}
+                  <button onClick={startEditName} className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-indigo-500" title="修改名稱">
+                    <PenLine className="w-4 h-4" />
+                  </button>
+                </h2>
+                <p className="text-xs text-slate-500 flex items-center gap-1">
+                   {activeUser.history.length > 0 ? `最後更新: ${activeUser.history[0].date}` : '新建立'} • 步驟 #{activeUser.stepCount}
+                </p>
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 mt-4 md:mt-0 w-full md:w-auto">
+            <button 
+              onClick={cloneUser}
+              className="px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors"
+              title="複製目前的狀態為新投資組合"
+            >
+              <Copy className="w-4 h-4" /> 另存副本
+            </button>
+            <button 
+              onClick={requestReset} 
+              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors"
+              title="清除此組合的操作紀錄，回到初始狀態"
+            >
+              <RotateCcw className="w-4 h-4" /> 重置
+            </button>
+            
+            {users.length > 1 ? (
+              <button 
+                onClick={requestDelete}
+                className="px-3 py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-sm font-medium flex items-center justify-center transition-colors"
+                title="刪除此投資組合"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            ) : (
+              <button 
+                disabled
+                className="px-3 py-2 bg-gray-100 text-gray-400 rounded-lg text-sm font-medium flex items-center justify-center cursor-not-allowed"
+                title="至少需保留一個投資組合"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
+
+            <div className="w-px h-6 bg-gray-300 mx-1"></div>
+            <button 
+              onClick={requestClearAll}
+              className="px-3 py-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg text-xs transition-colors"
+              title="【危險】清除所有資料，回到出廠狀態"
+            >
+              清除全部
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          
+          {/* 左側面板 - 設定區 */}
+          <div className="lg:col-span-4 space-y-4">
+            
+            {/* 資產配置風控面板 */}
+            <Card className="border-l-4 border-sky-500 bg-sky-50/20">
+              <h3 className="font-bold text-sky-900 mb-4 flex items-center gap-2 border-b border-sky-200 pb-2">
+                <PieChart className="w-4 h-4 text-sky-600" /> 資產配置風控 (建議 33%)
+              </h3>
+              <div className="space-y-4">
+                <div>
+                   <label className="block text-xs font-medium text-gray-500 mb-1">您的總淨值 (Total Net Worth)</label>
+                   <input type="number" value={activeUser.totalPortfolio} onChange={(e) => updateUser({ totalPortfolio: Number(e.target.value) })} className="w-full p-2 border border-sky-300 rounded focus:ring-2 focus:ring-sky-500 outline-none bg-white text-sky-900 font-bold" />
+                </div>
+                <div className="flex items-center justify-between text-xs text-gray-500">
+                   <span>配置比例</span>
+                   <div className="flex items-center gap-1">
+                      <input type="number" value={activeUser.allocationRate} onChange={(e) => updateUser({ allocationRate: Number(e.target.value) })} className="w-12 p-1 text-center border rounded bg-white" />
+                      <span>%</span>
+                   </div>
+                </div>
+                
+                <div className="bg-white p-3 rounded-lg border border-sky-100 flex items-center justify-between">
+                   <div>
+                     <span className="text-xs text-gray-500 block">建議擔保品金額</span>
+                     <span className="text-lg font-bold text-sky-700">{fmtCurrency(suggestedCollateralFromPortfolio)} 萬</span>
+                   </div>
+                   <button 
+                     onClick={() => updateUser({ initialCollateral: suggestedCollateralFromPortfolio })}
+                     className="px-3 py-1 bg-sky-100 hover:bg-sky-200 text-sky-700 text-xs font-medium rounded flex items-center gap-1 transition-colors"
+                   >
+                     <ArrowDownCircle className="w-3 h-3" /> 套用
+                   </button>
+                </div>
+                <p className="text-[10px] text-gray-400">* 建議僅使用總資產的 1/3 作為槓桿操作的初始擔保品。</p>
+              </div>
+            </Card>
+
+             {/* 操作資訊 */}
+             <Card>
+              <h3 className="font-bold text-indigo-900 mb-4 flex items-center gap-2 border-b border-indigo-100 pb-2">
+                <Calendar className="w-4 h-4 text-indigo-600" /> 操作資訊錄入
+              </h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">發生日期</label>
+                  <input type="date" value={activeUser.actionDate} onChange={(e) => updateUser({ actionDate: e.target.value })} className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 outline-none" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">備註 / 心得 (選填)</label>
+                  <div className="relative">
+                    <input type="text" value={activeUser.actionNote} onChange={(e) => updateUser({ actionNote: e.target.value })} placeholder="例如：Fed 降息..." className="w-full p-2 pl-9 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 outline-none" />
+                    <FileText className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" />
+                  </div>
+                </div>
+              </div>
+            </Card>
+
+            {/* 備用金專區 */}
+            <Card className="border-l-4 border-emerald-500 bg-emerald-50/30">
+              <h3 className="font-bold text-emerald-900 mb-4 flex items-center gap-2 border-b border-emerald-200 pb-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-600" /> 風險備用金設定
+              </h3>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                   <label className="text-xs font-medium text-gray-600">自動建議 (2倍安全金)</label>
+                   <button 
+                     onClick={() => updateUser({ useAutoReserve: !activeUser.useAutoReserve })}
+                     className={`w-10 h-5 rounded-full flex items-center p-1 transition-colors ${activeUser.useAutoReserve ? 'bg-emerald-500' : 'bg-gray-300'}`}
+                   >
+                     <div className={`w-3 h-3 bg-white rounded-full shadow-md transform transition-transform ${activeUser.useAutoReserve ? 'translate-x-5' : 'translate-x-0'}`} />
+                   </button>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">現有可動用備用金 (萬)</label>
+                  <input type="number" value={activeUser.reserveCash} onChange={(e) => updateUser({ reserveCash: Number(e.target.value), useAutoReserve: false })} className="w-full p-2 border border-emerald-300 rounded focus:ring-2 focus:ring-emerald-500 outline-none bg-white text-emerald-900 font-bold" />
+                </div>
+                <div className="bg-white p-2 rounded text-xs text-gray-500 space-y-1">
+                   <div className="flex justify-between">
+                     <span>當前單倍救命金需求:</span>
+                     <span className="font-medium text-gray-700">{fmtCurrency(theoreticalSafetyCash)} 萬</span>
+                   </div>
+                   <div className="text-[10px] text-gray-400">
+                     * 若跌至 {activeUser.lowThreshold}%，還款救回 {activeUser.targetRatio}% 所需金額
+                   </div>
+                </div>
+              </div>
+            </Card>
+
+            {/* 基礎參數與閾值設定 */}
+            <Card>
+              <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2 border-b pb-2"><Percent className="w-4 h-4 text-gray-500" /> 基礎設定</h3>
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div><label className="block text-xs font-medium text-gray-500 mb-1">初始本金 (萬)</label><input type="number" value={activeUser.initialCollateral} onChange={(e) => updateUser({ initialCollateral: Number(e.target.value) })} className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 outline-none" /></div>
+                  <div><label className="block text-xs font-medium text-gray-500 mb-1">初始借款成數 (%)</label><input type="number" value={activeUser.initialLoanRatio} onChange={(e) => updateUser({ initialLoanRatio: Number(e.target.value) })} className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 outline-none" /></div>
+                </div>
+                <div><label className="block text-xs font-medium text-gray-500 mb-1">借款年利率 (%)</label><div className="relative"><input type="number" step="0.1" value={activeUser.interestRate} onChange={(e) => updateUser({ interestRate: Number(e.target.value) })} className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 outline-none pl-10" /><DollarSign className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" /></div></div>
+              </div>
+            </Card>
+            <Card>
+              <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2 border-b pb-2"><AlertTriangle className="w-4 h-4 text-gray-500" /> 策略閾值設定</h3>
+              <div className="space-y-3">
+                 <div className="flex justify-between items-center"><label className="text-sm text-red-600 font-medium">補錢/還款警戒線</label><input type="number" value={activeUser.lowThreshold} onChange={e=>updateUser({ lowThreshold: Number(e.target.value) })} className="w-16 p-1 border rounded text-center text-sm" /></div>
+                 <div className="flex justify-between items-center"><label className="text-sm text-green-600 font-medium">目標回復維持率</label><input type="number" value={activeUser.targetRatio} onChange={e=>updateUser({ targetRatio: Number(e.target.value) })} className="w-16 p-1 border rounded text-center text-sm font-bold bg-green-50 border-green-200" /></div>
+                 <div className="flex justify-between items-center"><label className="text-sm text-blue-600 font-medium">加碼/增貸觸發線</label><input type="number" value={activeUser.highThreshold} onChange={e=>updateUser({ highThreshold: Number(e.target.value) })} className="w-16 p-1 border rounded text-center text-sm" /></div>
+              </div>
+            </Card>
+          </div>
+
+          {/* 右側面板 - 操作與儀表板 */}
+          <div className="lg:col-span-8 space-y-6">
+            
+            {/* 儀表板 */}
+            <div className="grid grid-cols-3 gap-4">
+              <Card className="flex flex-col items-center justify-center py-4 bg-indigo-50 border border-indigo-100 relative group">
+                <span className="text-xs font-semibold text-indigo-600 uppercase tracking-wider mb-1 flex items-center gap-1">
+                   總資產市值 <Edit3 className="w-3 h-3 opacity-50" />
+                </span>
+                <div className="relative flex items-baseline">
+                   <input 
+                    type="number"
+                    value={Math.round(currentAsset)}
+                    onChange={(e) => handleManualAssetChange(e.target.value)}
+                    className="w-32 bg-transparent text-2xl font-black text-indigo-900 text-center border-b border-indigo-200 hover:border-indigo-500 focus:border-indigo-600 focus:outline-none transition-colors"
+                   />
+                </div>
+                <div className="text-[10px] text-indigo-400 mt-1 opacity-0 group-hover:opacity-100 transition-opacity absolute bottom-2">點擊數字手動修改</div>
+              </Card>
+
+              <Card className="flex flex-col items-center justify-center py-4 bg-red-50 border border-red-100">
+                <span className="text-xs font-semibold text-red-600 uppercase tracking-wider mb-1">總借款負債</span>
+                <span className="text-2xl font-black text-red-900">{fmtCurrency(currentLoan)}</span>
+              </Card>
+              <Card className="flex flex-col items-center justify-center py-4 bg-emerald-50 border border-emerald-100">
+                <span className="text-xs font-semibold text-emerald-600 uppercase tracking-wider mb-1">當前維持率</span>
+                <span className={`text-3xl font-black ${getStatusColor(currentRatio)}`}>{fmt(currentRatio)}%</span>
+              </Card>
+            </div>
+
+            {/* 市場滑桿 */}
+            <Card className="border-2 border-slate-200">
+              <div className="flex justify-between items-end mb-2">
+                <label className="font-bold flex items-center gap-2">
+                   市場波動模擬 
+                   {activeUser.marketChange !== 0 && <span className="text-xs font-normal text-slate-500">(未確認)</span>}
+                </label>
+                <span className={`text-xl font-bold ${activeUser.marketChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {activeUser.marketChange > 0 ? '+' : ''}{fmt(activeUser.marketChange)}%
+                </span>
+              </div>
+              <input type="range" min="-50" max="50" step="1" value={activeUser.marketChange} onChange={(e) => updateUser({ marketChange: Number(e.target.value) })} className="w-full h-3 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-slate-600 mb-4" />
+              <button onClick={commitMarketChange} disabled={activeUser.marketChange === 0} className={`w-full py-3 rounded-lg font-bold flex items-center justify-center gap-2 transition-all ${activeUser.marketChange === 0 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-slate-800 text-white hover:bg-slate-700 shadow-lg'}`}>
+                  <Save className="w-4 h-4" /> 確認此波動並鎖定
+              </button>
+            </Card>
+
+            {/* 操作區 (Action Zone) */}
+            <div className={`rounded-lg border-l-4 p-4 shadow-sm transition-colors ${
+              isDanger ? 'bg-red-50 border-red-500' : 
+              isOpportunity ? 'bg-blue-50 border-blue-500' : 
+              'bg-white border-green-500'
+            }`}>
+              
+              {/* 1. 標題與狀態 */}
+              <div className="flex items-center gap-2 mb-4 pb-2 border-b border-gray-100">
+                {isDanger && <AlertTriangle className="w-5 h-5 text-red-600" />}
+                {isOpportunity && <TrendingUp className="w-5 h-5 text-blue-600" />}
+                {isSafe && <MousePointerClick className="w-5 h-5 text-green-600" />}
+                
+                <h4 className={`font-bold ${
+                  isDanger ? 'text-red-900' : 
+                  isOpportunity ? 'text-blue-900' : 
+                  'text-green-900'
+                }`}>
+                  {isDanger ? `警告：維持率過低 (${fmt(currentRatio)}%)` : 
+                   isOpportunity ? `機會：可進行循環加碼` : 
+                   `狀態良好：主動調整控制台`}
+                </h4>
+              </div>
+
+              {/* 2. 操作模式切換 (Safe Zone Only) */}
+              {isSafe && (
+                <div className="flex bg-slate-100 rounded-lg p-1 mb-4">
+                  <button 
+                    onClick={() => updateUser({ manualMode: 'repay', marginActionType: 'repay', isManualInput: false, inputAmount: 0 })}
+                    className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-all flex items-center justify-center gap-2
+                      ${activeUser.manualMode === 'repay' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                  >
+                    <ShieldCheck className="w-4 h-4" /> 主動降槓桿 (提前還款)
+                  </button>
+                  <button 
+                    onClick={() => updateUser({ manualMode: 'deposit', isManualInput: false, inputAmount: 0 })}
+                    className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-all flex items-center justify-center gap-2
+                      ${activeUser.manualMode === 'deposit' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                  >
+                    <PlusCircle className="w-4 h-4" /> 純買入擔保品 (自有資金)
+                  </button>
+                  <button 
+                    onClick={() => updateUser({ manualMode: 'invest', isManualInput: false, inputAmount: 0 })}
+                    className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-all flex items-center justify-center gap-2
+                      ${activeUser.manualMode === 'invest' ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                  >
+                    <TrendingUp className="w-4 h-4" /> 主動加碼 (增貸買入)
+                  </button>
+                </div>
+              )}
+
+              {/* 3. 子選項 (還款 vs 補錢) - 僅在警戒區顯示 */}
+              {isDanger && (
+                 <div className="flex bg-white rounded-lg p-1 border border-gray-200 mb-4">
+                    <button onClick={() => updateUser({ marginActionType: 'repay', isManualInput: false })} className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-all ${activeUser.marginActionType === 'repay' ? 'bg-gray-100 text-gray-800 shadow-sm font-bold' : 'text-gray-500 hover:bg-gray-50'}`}>
+                      方案 A: 還錢 (償還借款)
+                    </button>
+                    <button onClick={() => updateUser({ marginActionType: 'inject', isManualInput: false })} className={`flex-1 py-1.5 text-sm font-medium rounded-md transition-all ${activeUser.marginActionType === 'inject' ? 'bg-gray-100 text-gray-800 shadow-sm font-bold' : 'text-gray-500 hover:bg-gray-50'}`}>
+                      方案 B: 補錢 (追加擔保)
+                    </button>
+                 </div>
+              )}
+
+              {/* 4. 備用金檢測 (僅在需要掏錢時顯示：補錢 或 還錢) */}
+              {(effectiveMode === 'repay') && (
+                <div className={`mb-3 p-3 rounded-lg border flex items-center justify-between ${Number(activeUser.inputAmount) <= activeUser.reserveCash ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
+                    <div className="flex items-center gap-2">
+                       {Number(activeUser.inputAmount) <= activeUser.reserveCash ? <ShieldCheck className="w-5 h-5 text-emerald-600" /> : <ShieldAlert className="w-5 h-5 text-red-600" />}
+                       <div>
+                         <p className={`text-xs font-bold ${Number(activeUser.inputAmount) <= activeUser.reserveCash ? 'text-emerald-800' : 'text-red-800'}`}>
+                           {Number(activeUser.inputAmount) <= activeUser.reserveCash ? '備用金充足' : '備用金不足！'}
+                         </p>
+                         <p className="text-[10px] text-gray-500">現有備用金: {fmtCurrency(activeUser.reserveCash)} 萬</p>
+                       </div>
+                    </div>
+                    {Number(activeUser.inputAmount) > activeUser.reserveCash && (
+                      <span className="text-xs font-bold text-red-600 bg-white px-2 py-1 rounded shadow-sm">
+                        缺口: {fmtCurrency(Number(activeUser.inputAmount) - activeUser.reserveCash)} 萬
+                      </span>
+                    )}
+                </div>
+              )}
+
+              {/* 5. 金額輸入與預測 */}
+              <div className="bg-white p-4 rounded-lg border border-gray-200 mb-4 space-y-3">
+                <div className="flex justify-between items-center mb-1">
+                  <label className="text-sm text-gray-600 font-bold flex items-center gap-1">
+                    <DollarSign className="w-4 h-4" /> 
+                    {effectiveMode === 'invest' ? '輸入加碼金額 (借款再買入)' : 
+                     (effectiveMode === 'deposit' ? '輸入買入金額 (自有資金)' :
+                     (activeUser.marginActionType === 'inject' ? '輸入補入金額' : '輸入償還金額'))}
+                  </label>
+                  
+                  {activeUser.isManualInput && (
+                    <button 
+                      onClick={() => updateUser({ isManualInput: false })}
+                      className="text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1 bg-indigo-50 px-2 py-1 rounded transition-colors"
+                    >
+                      <RefreshCcw className="w-3 h-3" /> 
+                      {isSafe ? '重置為 0' : `重置為建議值 (${activeUser.targetRatio}%)`}
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex gap-2 items-center">
+                  <input 
+                    type="number" 
+                    value={activeUser.inputAmount}
+                    onChange={(e) => updateUser({ inputAmount: e.target.value, isManualInput: true })}
+                    className={`flex-1 text-xl font-bold text-gray-800 border-b-2 outline-none py-1 bg-transparent
+                      ${effectiveMode === 'invest' ? 'border-blue-300 focus:border-blue-600' : 
+                        effectiveMode === 'deposit' ? 'border-indigo-300 focus:border-indigo-600' :
+                        (isSafe ? 'border-green-300 focus:border-green-600' : 'border-red-300 focus:border-red-600')}
+                    `}
+                    placeholder="0"
+                  />
+                  <span className="text-gray-500 font-medium">萬</span>
+                </div>
+
+                <div className="flex items-center justify-between pt-2 border-t border-dashed border-gray-200">
+                  <span className="text-xs text-gray-500">預期操作後維持率</span>
+                  <div className="flex items-center gap-2">
+                     <span className={`text-lg font-bold ${getStatusColor(predictedVal)}`}>
+                       {fmt(predictedVal)}%
+                     </span>
+                     {Math.abs(predictedVal - activeUser.targetRatio) < 1 && (
+                       <Badge color="green">已達標</Badge>
+                     )}
+                  </div>
+                </div>
+              </div>
+
+              {/* 6. 執行按鈕 */}
+              <button 
+                onClick={executeAction} 
+                className={`w-full py-2.5 text-white rounded-lg font-bold shadow-md transition-all hover:shadow-lg
+                  ${effectiveMode === 'invest' 
+                    ? 'bg-blue-600 hover:bg-blue-700' 
+                    : effectiveMode === 'deposit'
+                    ? 'bg-indigo-600 hover:bg-indigo-700'
+                    : (isSafe ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700')}
+                `}
+              >
+                確認執行：
+                {effectiveMode === 'invest' ? '循環加碼 (增貸)' : 
+                 effectiveMode === 'deposit' ? '純買入擔保品' :
+                 (activeUser.marginActionType === 'inject' ? '追加擔保品 (補錢)' : '償還借款 (還錢)')}
+              </button>
+
+            </div>
+            
+            <AssetTrendChart history={activeUser.history} />
+
+          </div>
+        </div>
+
+        {/* 歷史紀錄 (保持不變) */}
+        <div className="mt-8">
+          <h2 className="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2">
+            <History className="w-5 h-5" /> 操作歷史紀錄
+          </h2>
+          <div className="bg-white rounded-xl shadow-md overflow-hidden overflow-x-auto">
+            <table className="w-full text-sm text-left">
+              <thead className="bg-slate-100 text-slate-600 font-medium border-b border-slate-200">
+                <tr>
+                  <th className="px-4 py-3 whitespace-nowrap w-24">日期</th>
+                  <th className="px-4 py-3 whitespace-nowrap">操作事件</th>
+                  <th className="px-4 py-3 text-right whitespace-nowrap">現金流變動</th>
+                  <th className="px-4 py-3 text-right whitespace-nowrap">總資產</th>
+                  <th className="px-4 py-3 text-right whitespace-nowrap">總借款</th>
+                  <th className="px-4 py-3 text-center whitespace-nowrap">維持率</th>
+                  <th className="px-4 py-3 text-right whitespace-nowrap text-yellow-700 bg-yellow-50">年利息成本</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {activeUser.history.map((row) => (
+                  <tr key={row.step} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-4 py-3 align-top font-mono text-slate-500">{row.date} <div className="text-[10px]">#{row.step}</div></td>
+                    <td className="px-4 py-3 align-top">
+                      <div className="font-medium text-slate-800 flex items-center gap-2">
+                        {row.action}
+                        {row.marketChange !== 0 && <span className={`text-xs ${row.marketChange > 0 ? 'text-green-500' : 'text-red-500'}`}>{row.marketChange > 0 ? '+' : ''}{fmt(row.marketChange)}%</span>}
+                      </div>
+                      {row.note && <div className="mt-1 text-xs text-slate-500 bg-slate-100 inline-block px-2 py-1 rounded">{row.note}</div>}
+                    </td>
+                    <td className="px-4 py-3 text-right align-top">
+                      {row.cashFlow > 0 ? <span className="text-red-600 font-bold">-{fmtCurrency(row.cashFlow)}</span> : <span className="text-gray-300">-</span>}
+                    </td>
+                    <td className="px-4 py-3 text-right font-medium text-indigo-600 align-top">{fmtCurrency(row.asset)}</td>
+                    <td className="px-4 py-3 text-right font-medium text-red-600 align-top">{fmtCurrency(row.loan)}</td>
+                    <td className="px-4 py-3 text-center align-top"><Badge color={row.ratio < activeUser.lowThreshold ? 'red' : row.ratio > activeUser.highThreshold ? 'blue' : 'green'}>{fmt(row.ratio)}%</Badge></td>
+                    <td className="px-4 py-3 text-right font-mono text-yellow-700 bg-yellow-50/50 align-top">{fmt(row.interestYear)} 萬</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<LeverageLoopCalculator />);
+
+  </script>
+</body>
+</html>
